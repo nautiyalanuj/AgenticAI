@@ -1,4 +1,9 @@
-"""Run the assistant as a small interactive terminal chat."""
+"""Run the assistant as an interactive terminal chat.
+
+Configuration is loaded from ``.env``. LangGraph checkpoints are stored in
+PostgreSQL, while LangSmith tracing is enabled by the LangChain environment
+variables documented in the project README.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ from travel_assistant.graph import build_graph
 
 
 def main() -> None:
+    """Validate configuration, open PostgreSQL, and serve chat turns."""
     load_dotenv()
     for name in ("DEEPSEEK_API_KEY", "TAVILY_API_KEY"):
         if not os.getenv(name):
@@ -25,9 +31,12 @@ def main() -> None:
     if not database_url:
         raise SystemExit("Missing DATABASE_URL in .env")
 
+    # Keep the database connection open for the full interactive session.
     with PostgresSaver.from_conn_string(database_url) as checkpointer:
+        # Create LangGraph's checkpoint tables if this is the first run.
         checkpointer.setup()
         graph = build_graph(checkpointer)
+        # Reusing a thread ID resumes that conversation from PostgreSQL.
         config = {"configurable": {"thread_id": args.thread_id}}
         print(f"Travel assistant ready (thread: {args.thread_id}). Type 'exit' to quit.")
         while True:
@@ -40,6 +49,7 @@ def main() -> None:
                 break
             if not text:
                 continue
+            # LangGraph appends this turn to the checkpointed conversation.
             result = graph.invoke({"messages": [HumanMessage(content=text)]}, config)
             print(f"assistant> {result['messages'][-1].content}\n")
 
